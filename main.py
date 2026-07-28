@@ -111,7 +111,7 @@ async def upload_progress(current, total, status_msg, start_time):
     )
     await safe_edit_text(status_msg, text)
 
-# Check Multi Force Sub Channels
+# Strict Check Multi Force Sub Channels
 async def check_force_sub(client, user_id):
     channels = get_fsub_channels()
     if not channels or user_id == OWNER_ID:
@@ -122,7 +122,7 @@ async def check_force_sub(client, user_id):
         try:
             ch_id = int(ch) if (ch.startswith("-") or ch.isdigit()) else ch
             member = await client.get_chat_member(ch_id, user_id)
-            if member.status not in ["member", "administrator", "creator"]:
+            if member.status in ["kicked", "left"]:
                 unjoined.append(ch)
         except Exception:
             unjoined.append(ch)
@@ -164,7 +164,8 @@ async def start_command(client, message):
     if not is_joined:
         keyboard = await build_fsub_keyboard(client, unjoined)
         await message.reply_text(
-            "⚠️ **You must join all our official channels to use this bot!**",
+            "🔒 **নিরাপত্তা যাচাইকরণের জন্য নিচের সবকটি চ্যানেলে জয়েন করা বাধ্যতামূলক!**\n\n"
+            "সবগুলোতে জয়েন করার পর **'🔄 Verify & Continue'** বাটনে ক্লিক করুন।",
             reply_markup=keyboard
         )
         return
@@ -176,19 +177,34 @@ async def start_command(client, message):
     )
     await message.reply_text(welcome_text, reply_markup=reply_markup_ui)
 
-# Callback Query Handler for Force Sub Re-check
+# 🔄 Strictly Verification Callback Query Handler
 @bot_app.on_callback_query(filters.regex("^check_fsub_again$"))
 async def fsub_callback(client, callback_query):
     user_id = callback_query.from_user.id
     is_joined, unjoined = await check_force_sub(client, user_id)
 
     if is_joined:
-        await callback_query.answer("✅ Thank you for joining! You can now use the bot.", show_alert=True)
-        await callback_query.message.delete()
+        await callback_query.answer("✅ ভেরিফিকেশন সফল হয়েছে! চ্যাট আনলক করা হয়েছে।", show_alert=True)
+        try:
+            await callback_query.message.delete()
+        except Exception:
+            pass
+        await callback_query.message.reply_text(
+            "🎉 **ভেরিফিকেশন সম্পন্ন হয়েছে!**\n\n"
+            "এখন যেকোনো ভিডিওর লিংক (YouTube, Facebook, Reels, TikTok) সেন্ড করতে পারেন।",
+            reply_markup=reply_markup_ui
+        )
     else:
-        await callback_query.answer("❌ You still haven't joined all required channels!", show_alert=True)
+        await callback_query.answer("❌ আপনি এখনো সব চ্যানেলে জয়েন করেননি! সবগুলোতে জয়েন করে আবার চেষ্টা করুন।", show_alert=True)
+        keyboard = await build_fsub_keyboard(client, unjoined)
+        await safe_edit_text(
+            callback_query.message,
+            "⚠️ **ভেরিফিকেশন ব্যর্থ হয়েছে!**\n\n"
+            "বটটি ব্যবহার করতে নিচের **সবগুলো** চ্যানেলে জয়েন করা আবশ্যক। জয়েন করে '🔄 Verify & Continue' বাটনে ক্লিক করুন।",
+            reply_markup=keyboard
+        )
 
-# 📢 1. EASY F-SUB VIA FORWARDED MESSAGE (FIXED & OWNER ONLY)
+# 📢 1. EASY F-SUB VIA FORWARDED MESSAGE (OWNER ONLY)
 @bot_app.on_message(filters.private & filters.forwarded)
 async def handle_forward_fsub(client, message):
     if not message.from_user or message.from_user.id != OWNER_ID:
@@ -210,17 +226,17 @@ async def handle_forward_fsub(client, message):
             current.append(ch_id)
             set_fsub_channels(current)
             await message.reply_text(
-                f"✅ **Owner Verified! Channel Added!**\n\n"
-                f"📌 **Name:** `{ch_title}`\n"
-                f"🆔 **ID:** `{ch_id}`"
+                f"✅ **চ্যানেল সফলভাবে যুক্ত হয়েছে!**\n\n"
+                f"📌 **নাম:** `{ch_title}`\n"
+                f"🆔 **আইডি:** `{ch_id}`"
             )
         else:
-            await message.reply_text(f"⚠️ **`{ch_title}`** is already in the list!")
+            await message.reply_text(f"⚠️ **`{ch_title}`** আগেই তালিকায় রয়েছে!")
     else:
-        await message.reply_text("❌ Could not extract channel ID! Try: `/addfsub @channelusername`")
+        await message.reply_text("❌ আইডি নেওয়া সম্ভব হয়নি! বিকল্প কমান্ড ব্যবহার করুন: `/addfsub @channelusername`")
 
 # Main Handler for Text Buttons and Links
-@bot_app.on_message(filters.text & filters.private & ~filters.command(["start", "setfsub", "addfsub", "offsub", "showfsub"]))
+@bot_app.on_message(filters.text & filters.private & ~filters.command(["start", "setfsub", "addfsub", "delfsub", "clearfsub", "offsub", "showfsub"]))
 async def main_text_handler(client, message):
     text = message.text.strip()
     user_id = message.from_user.id
@@ -228,7 +244,7 @@ async def main_text_handler(client, message):
     is_joined, unjoined = await check_force_sub(client, user_id)
     if not is_joined:
         keyboard = await build_fsub_keyboard(client, unjoined)
-        await message.reply_text("⚠️ **Please join all our channels first to use the bot!**", reply_markup=keyboard)
+        await message.reply_text("⚠️ **বট ব্যবহার করতে আপনাকে আগে সবকটি চ্যানেলে জয়েন করতে হবে!**", reply_markup=keyboard)
         return
 
     if text == "ℹ️ Supported Platforms":
@@ -327,7 +343,7 @@ async def process_direct_social_link(client, message, url):
 
         await status_msg.delete()
 
-        # ⏱️ Short & Clean 10 Minutes Auto Delete Notice
+        # ⏱️ Short 10 Minutes Auto Delete Notice
         notice_text = "⏳ **Notice:** Media & link will automatically delete in **10 minutes**! Save now."
         notice_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("👨‍💻 Developer Support", url="https://t.me/developerBYsiam")]
@@ -346,7 +362,7 @@ async def process_direct_social_link(client, message, url):
             try: os.remove(file_path)
             except Exception: pass
 
-# 📢 EASY F-SUB COMMANDS (VERIFIED OWNER ONLY)
+# 📢 EASY ADMIN CHANNEL MANAGEMENT COMMANDS
 @bot_app.on_message(filters.command("addfsub") & filters.private)
 async def add_fsub_command(client, message):
     if not message.from_user or message.from_user.id != OWNER_ID:
@@ -362,11 +378,11 @@ async def add_fsub_command(client, message):
         if ch_id not in current:
             current.append(ch_id)
             set_fsub_channels(current)
-            await message.reply_text(f"✅ **`{chat.title}`** (`{ch_id}`) added to F-Sub list!")
+            await message.reply_text(f"✅ **`{chat.title}`** (`{ch_id}`) F-Sub তালিকায় যোগ করা হয়েছে!")
         else:
-            await message.reply_text("⚠️ Channel already in list!")
+            await message.reply_text("⚠️ এই চ্যানেলটি আগেই তালিকায় আছে!")
     except Exception as e:
-        await message.reply_text(f"⚠️ **Format:** `/addfsub @channelusername` or `/addfsub -100xxxxxxx`\nError: `{e}`")
+        await message.reply_text(f"⚠️ **ফরমেট:** `/addfsub @channelusername` বা `/addfsub -100xxxxxxx`\nError: `{e}`")
 
 @bot_app.on_message(filters.command("showfsub") & filters.private)
 async def show_fsub_command(client, message):
@@ -375,25 +391,57 @@ async def show_fsub_command(client, message):
 
     channels = get_fsub_channels()
     if channels:
-        text = f"<b>📢 Active F-Sub Channels ({len(channels)}):</b>\n\n"
+        text = f"<b>📢 সক্রিয় F-Sub চ্যানেল তালিকা ({len(channels)}টি):</b>\n\n"
         for idx, ch in enumerate(channels, 1):
             try:
                 ch_id = int(ch) if (ch.startswith("-") or ch.isdigit()) else ch
                 chat = await client.get_chat(ch_id)
-                text += f"{idx}. **{chat.title}** (`{ch}`)\n"
+                text += f"<b>{idx}.</b> {chat.title} (<code>{ch}</code>)\n"
             except Exception:
-                text += f"{idx}. Unknown Channel (`{ch}`)\n"
+                text += f"<b>{idx}.</b> অজানা চ্যানেল (<code>{ch}</code>)\n"
+        
+        text += "\n💡 <i>যেকোনো চ্যানেল কাটতে টাইপ করুন:</i> <code>/delfsub <নম্বর></code>"
         await message.reply_text(text)
     else:
-        await message.reply_text("ℹ️ No F-Sub channels currently set.")
+        await message.reply_text("ℹ️ বর্তমানে কোনো F-Sub চ্যানেল সেট করা নেই।")
 
-@bot_app.on_message(filters.command("offsub") & filters.private)
+@bot_app.on_message(filters.command("delfsub") & filters.private)
+async def del_fsub_command(client, message):
+    if not message.from_user or message.from_user.id != OWNER_ID:
+        return
+
+    try:
+        target = message.text.split()[1].strip()
+        current = get_fsub_channels()
+
+        if not current:
+            await message.reply_text("ℹ️ কাটাকুটি করার মতো কোনো চ্যানেল সেট করা নেই।")
+            return
+
+        removed_ch = None
+        # যদি ইউজার নম্বর দেয় (যেমন: /delfsub 1)
+        if target.isdigit() and 1 <= int(target) <= len(current):
+            idx = int(target) - 1
+            removed_ch = current.pop(idx)
+        elif target in current:
+            current.remove(target)
+            removed_ch = target
+
+        if removed_ch:
+            set_fsub_channels(current)
+            await message.reply_text(f"🗑️ **চ্যানেল সফলভাবে মুছে ফেলা হয়েছে!**\nআইডি: `{removed_ch}`")
+        else:
+            await message.reply_text("❌ সঠিক নম্বর বা চ্যানেল আইডি দিন! লিস্ট দেখতে `/showfsub` দিন।")
+    except Exception:
+        await message.reply_text("⚠️ **সহজ নিয়ম:** `/delfsub 1` (১ নম্বর চ্যানেল কাটার জন্য)")
+
+@bot_app.on_message(filters.command(["clearfsub", "offsub"]) & filters.private)
 async def off_fsub_command(client, message):
     if not message.from_user or message.from_user.id != OWNER_ID:
         return
 
     set_fsub_channels([])
-    await message.reply_text("✅ All Force Subscribe channels turned OFF!")
+    await message.reply_text("🧹 **সবকটি F-Sub চ্যানেল এক ক্লিকে রিমুভ/বন্ধ করা হয়েছে!**")
 
 # Health Check & Server Boot
 async def handle(request): return web.Response(text="Bot Active!")
@@ -410,5 +458,4 @@ async def main():
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
     loop.run_until_complete(main())

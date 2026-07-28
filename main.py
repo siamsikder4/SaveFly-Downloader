@@ -16,9 +16,9 @@ from aiohttp import web
 import yt_dlp
 
 # Environment Variables
-API_ID = int(os.environ.get("API_ID"))
-API_HASH = os.environ.get("API_HASH")
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+API_ID = int(os.environ.get("API_ID", "0").strip())
+API_HASH = os.environ.get("API_HASH", "").strip()
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
 # Owner ID
 OWNER_ID = int(os.environ.get("OWNER_ID", "6142774415"))  
@@ -107,7 +107,6 @@ async def process_social_media_link(client, message, url):
     try:
         await safe_edit_text(status_msg, "📥 **Downloading media from social platform...**")
         
-        # Run yt-dlp in a separate thread to keep bot responsive
         loop = asyncio.get_event_loop()
         def download():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -182,7 +181,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print("🤖 Social Media Downloader Bot Active!")
-    asyncio.Event().wait()
+    await asyncio.Event().wait()  # 💡 Fixed missing 'await'
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()

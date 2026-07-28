@@ -30,9 +30,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 # 👑 Owner ID Verification (Your Telegram ID)
 OWNER_ID = int(os.environ.get("OWNER_ID", "6142774415"))  
 
-# Temporary cache for YouTube video links
-yt_cache = {}
-
 # Database Setup for Bot Settings (Multi F-Sub)
 DB_NAME = "bot_database.db"
 
@@ -148,9 +145,9 @@ async def start_command(client, message):
         return
 
     welcome_text = (
-        "✨ **Welcome to Downloader Bot!** ✨\n\n"
-        "🔗 Send me any video link from **YouTube, Facebook, Instagram, TikTok, Twitter, or Pinterest**!\n\n"
-        "🎬 **YouTube Feature:** Select video quality before downloading!\n"
+        "✨ **Welcome to Social Video Downloader Bot!** ✨\n\n"
+        "📥 Send me any video link from **YouTube, Facebook, Instagram, TikTok, Twitter, or Pinterest** to download directly!\n\n"
+        "⚡ **Fast & Direct High Quality Download**\n"
         "👨‍💻 **Developer:** @developerBYsiam"
     )
     await message.reply_text(welcome_text, reply_markup=reply_markup_ui)
@@ -167,16 +164,25 @@ async def fsub_callback(client, callback_query):
     else:
         await callback_query.answer("❌ You still haven't joined all required channels!", show_alert=True)
 
-# 📢 1. EASY F-SUB VIA FORWARDED MESSAGE (VERIFIED OWNER ONLY)
+# 📢 1. FIXED: EASY F-SUB VIA FORWARDED MESSAGE (VERIFIED OWNER ONLY)
 @bot_app.on_message(filters.private & filters.forwarded)
 async def handle_forward_fsub(client, message):
-    # 🔒 Strict ID Check: ইউজার যদি আপনার ID (6142774415) না হয় তবে ইগনোর করবে
+    # 🔒 Strict Owner Check
     if not message.from_user or message.from_user.id != OWNER_ID:
         return
 
-    if message.forward_from_chat and message.forward_from_chat.type in ["channel", "supergroup"]:
-        ch_id = str(message.forward_from_chat.id)
-        ch_title = message.forward_from_chat.title or "Channel"
+    forward_chat = None
+
+    # Check forward_from_chat OR forward_origin (Pyrogram v2+ compatibility)
+    if message.forward_from_chat:
+        forward_chat = message.forward_from_chat
+    elif hasattr(message, "forward_origin") and message.forward_origin:
+        if getattr(message.forward_origin, "chat", None):
+            forward_chat = message.forward_origin.chat
+
+    if forward_chat and str(forward_chat.type).lower() in ["chat_type.channel", "channel", "chat_type.supergroup", "supergroup"]:
+        ch_id = str(forward_chat.id)
+        ch_title = forward_chat.title or "Channel"
         
         current = get_fsub_channels()
         if ch_id not in current:
@@ -209,165 +215,23 @@ async def main_text_handler(client, message):
         platforms_text = (
             "<b>📱 SUPPORTED PLATFORMS:</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "▶️ **YouTube** (Select 360p, 720p, 1080p, MP3)\n"
+            "▶️ **YouTube** (Videos & Shorts)\n"
             "📘 **Facebook** (Videos & Reels)\n"
             "📸 **Instagram** (Reels & Posts)\n"
             "🎵 **TikTok** (No Watermark)\n"
-            "🐦 **Twitter / X** & 📌 **Pinterest**\n\n"
-            "<i>Just send any video link here!</i>"
+            "🐦 **Twitter / X**\n"
+            "📌 **Pinterest**\n\n"
+            "<i>Just paste any video link here to download directly!</i>"
         )
         await message.reply_text(platforms_text, reply_markup=reply_markup_ui)
 
     elif text == "📜 Credits":
-        await message.reply_text("<b>🤖 Downloader Bot</b>\n<b>👨‍💻 Lead Developer:</b> @developerBYsiam", reply_markup=reply_markup_ui)
+        await message.reply_text("<b>🤖 Social Video Downloader Bot</b>\n<b>👨‍💻 Lead Developer:</b> @developerBYsiam", reply_markup=reply_markup_ui)
 
     elif text.startswith("http://") or text.startswith("https://"):
-        if "youtube.com" in text or "youtu.be" in text:
-            await handle_youtube_link(client, message, text)
-        else:
-            await process_direct_social_link(client, message, text)
+        await process_direct_social_link(client, message, text)
 
-# 🎬 YouTube Link Handler
-async def handle_youtube_link(client, message, url):
-    status_msg = await message.reply_text("🔎 **Fetching available YouTube qualities...**")
-    
-    cache_id = str(uuid.uuid4())[:8]
-    yt_cache[cache_id] = {"url": url, "user_msg": message}
-
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🎬 360p", callback_data=f"ytq|360|{cache_id}"),
-            InlineKeyboardButton("🎬 480p", callback_data=f"ytq|480|{cache_id}")
-        ],
-        [
-            InlineKeyboardButton("🎬 720p (HD)", callback_data=f"ytq|720|{cache_id}"),
-            InlineKeyboardButton("🎬 1080p (FHD)", callback_data=f"ytq|1080|{cache_id}")
-        ],
-        [
-            InlineKeyboardButton("🎵 Audio Only (MP3)", callback_data=f"ytq|mp3|{cache_id}")
-        ]
-    ])
-
-    await safe_edit_text(
-        status_msg,
-        "<b>🎥 YOUTUBE DOWNLOAD QUALITY SELECT</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "👇 <i>Choose your preferred video or audio resolution:</i>",
-        reply_markup=keyboard
-    )
-
-# YouTube Download Execution Callback
-@bot_app.on_callback_query(filters.regex(r"^ytq\|"))
-async def youtube_quality_callback(client, callback_query):
-    parts = callback_query.data.split("|")
-    quality = parts[1]
-    cache_id = parts[2]
-
-    if cache_id not in yt_cache:
-        await callback_query.answer("❌ Request expired! Send link again.", show_alert=True)
-        return
-
-    url = yt_cache[cache_id]["url"]
-    user_msg = yt_cache[cache_id]["user_msg"]
-    status_msg = callback_query.message
-
-    await callback_query.answer(f"Downloading {quality}...")
-    await safe_edit_text(status_msg, f"📥 **Downloading YouTube media in {quality.upper()}...**")
-
-    os.makedirs("downloads", exist_ok=True)
-    out_file = f"downloads/{callback_query.from_user.id}_{cache_id}.%(ext)s"
-
-    youtube_extractor_args = {
-        'youtube': {
-            'player_client': ['ios', 'android', 'mweb'],
-            'skip': ['hls', 'dash']
-        }
-    }
-
-    if quality == "mp3":
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': out_file,
-            'extractor_args': youtube_extractor_args,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'max_filesize': 50 * 1024 * 1024,
-        }
-    else:
-        ydl_opts = {
-            'format': f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<={quality}][ext=mp4]/best',
-            'outtmpl': out_file,
-            'extractor_args': youtube_extractor_args,
-            'max_filesize': 50 * 1024 * 1024,
-        }
-
-    to_delete_messages = [user_msg]
-    file_path = None
-
-    try:
-        loop = asyncio.get_event_loop()
-        def download():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info)
-
-        file_path = await loop.run_in_executor(None, download)
-
-        if quality == "mp3" and file_path:
-            base, _ = os.path.splitext(file_path)
-            if os.path.exists(base + ".mp3"):
-                file_path = base + ".mp3"
-
-        if not file_path or not os.path.exists(file_path):
-            await safe_edit_text(status_msg, "❌ **Failed to download file.** Try another quality.")
-            return
-
-        await safe_edit_text(status_msg, "🚀 **Uploading to Telegram...**")
-
-        caption = f"⚡ **YouTube ({quality.upper()}) Downloaded!**\n\n✨ **Bot by:** @developerBYsiam"
-        
-        if quality == "mp3":
-            sent_msg = await bot_app.send_audio(callback_query.message.chat.id, audio=file_path, caption=caption)
-        else:
-            sent_msg = await bot_app.send_video(callback_query.message.chat.id, video=file_path, caption=caption)
-            
-        to_delete_messages.append(sent_msg)
-        await status_msg.delete()
-
-        # ⏱️ 10 Minutes Notice Message
-        notice_text = (
-            "⏳ **Auto Delete Notice**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "Your link, downloaded media, and this notice will be automatically deleted in **10 minutes**!\n"
-            "Please save or forward it now."
-        )
-        notice_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("👨‍💻 Developer Support", url="https://t.me/developerBYsiam")]
-        ])
-        
-        notice_msg = await bot_app.send_message(
-            callback_query.message.chat.id, 
-            notice_text, 
-            reply_markup=notice_keyboard
-        )
-        to_delete_messages.append(notice_msg)
-
-        asyncio.create_task(auto_delete_messages(to_delete_messages, delay=600))
-
-    except Exception as e:
-        await safe_edit_text(status_msg, f"⚠️ **Error:** `{str(e)}`")
-
-    finally:
-        if file_path and os.path.exists(file_path):
-            try: os.remove(file_path)
-            except Exception: pass
-        if cache_id in yt_cache:
-            del yt_cache[cache_id]
-
-# Direct Downloader for Other Social Media Links
+# Direct Downloader for All Links (YouTube + Social Media)
 async def process_direct_social_link(client, message, url):
     status_msg = await message.reply_text("🔎 **Processing link... Please wait.**")
     to_delete_messages = [message]
@@ -375,16 +239,27 @@ async def process_direct_social_link(client, message, url):
     os.makedirs("downloads", exist_ok=True)
     out_file = f"downloads/{message.from_user.id}_{int(time.time())}.%(ext)s"
 
+    # Options for yt-dlp
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': out_file,
         'noplaylist': True,
         'max_filesize': 50 * 1024 * 1024,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['ios', 'android', 'mweb'],
+                'skip': ['hls', 'dash']
+            }
+        }
     }
+
+    # If cookies.txt exists in root directory, use it automatically to bypass bot protection
+    if os.path.exists("cookies.txt"):
+        ydl_opts['cookiefile'] = "cookies.txt"
 
     file_path = None
     try:
-        await safe_edit_text(status_msg, "📥 **Downloading media...**")
+        await safe_edit_text(status_msg, "📥 **Downloading video...**")
         
         loop = asyncio.get_event_loop()
         def download():
@@ -398,7 +273,7 @@ async def process_direct_social_link(client, message, url):
             await safe_edit_text(status_msg, "❌ **Failed to download media.** Check link or restrictions.")
             return
 
-        await safe_edit_text(status_msg, "🚀 **Uploading media...**")
+        await safe_edit_text(status_msg, "🚀 **Uploading video to Telegram...**")
         
         caption = "⚡ **Downloaded Successfully!**\n\n✨ **Bot by:** @developerBYsiam"
         sent_video = await bot_app.send_video(message.chat.id, video=file_path, caption=caption)
@@ -433,7 +308,6 @@ async def process_direct_social_link(client, message, url):
 # 📢 2. EASY F-SUB VIA USERNAME OR COMMAND (VERIFIED OWNER ONLY)
 @bot_app.on_message(filters.command("addfsub") & filters.private)
 async def add_fsub_command(client, message):
-    # 🔒 Strict Owner Check
     if not message.from_user or message.from_user.id != OWNER_ID:
         return
 

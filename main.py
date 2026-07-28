@@ -27,7 +27,7 @@ API_ID = int(os.environ.get("API_ID", "0").strip())
 API_HASH = os.environ.get("API_HASH", "").strip()
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
-# Owner ID
+# 👑 Owner ID Verification (Your Telegram ID)
 OWNER_ID = int(os.environ.get("OWNER_ID", "6142774415"))  
 
 # Temporary cache for YouTube video links
@@ -98,7 +98,8 @@ async def check_force_sub(client, user_id):
     unjoined = []
     for ch in channels:
         try:
-            member = await client.get_chat_member(ch, user_id)
+            ch_id = int(ch) if (ch.startswith("-") or ch.isdigit()) else ch
+            member = await client.get_chat_member(ch_id, user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 unjoined.append(ch)
         except Exception:
@@ -111,8 +112,9 @@ async def build_fsub_keyboard(client, unjoined_channels):
     buttons = []
     for idx, ch in enumerate(unjoined_channels, 1):
         try:
-            chat = await client.get_chat(ch)
-            invite_link = chat.invite_link or f"https://t.me/{chat.username}"
+            ch_id = int(ch) if (ch.startswith("-") or ch.isdigit()) else ch
+            chat = await client.get_chat(ch_id)
+            invite_link = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else "https://t.me/")
             title = chat.title or f"Channel {idx}"
         except Exception:
             invite_link = "https://t.me/"
@@ -165,6 +167,32 @@ async def fsub_callback(client, callback_query):
     else:
         await callback_query.answer("❌ You still haven't joined all required channels!", show_alert=True)
 
+# 📢 1. EASY F-SUB VIA FORWARDED MESSAGE (VERIFIED OWNER ONLY)
+@bot_app.on_message(filters.private & filters.forwarded)
+async def handle_forward_fsub(client, message):
+    # 🔒 Strict ID Check: ইউজার যদি আপনার ID (6142774415) না হয় তবে ইগনোর করবে
+    if not message.from_user or message.from_user.id != OWNER_ID:
+        return
+
+    if message.forward_from_chat and message.forward_from_chat.type in ["channel", "supergroup"]:
+        ch_id = str(message.forward_from_chat.id)
+        ch_title = message.forward_from_chat.title or "Channel"
+        
+        current = get_fsub_channels()
+        if ch_id not in current:
+            current.append(ch_id)
+            set_fsub_channels(current)
+            await message.reply_text(
+                f"✅ **Owner Verified! Channel Added!**\n\n"
+                f"📌 **Name:** `{ch_title}`\n"
+                f"🆔 **ID:** `{ch_id}`\n\n"
+                f"<i>This channel is now added to Force Subscribe list.</i>"
+            )
+        else:
+            await message.reply_text(f"⚠️ **`{ch_title}`** is already in the Force Subscribe list!")
+    else:
+        await message.reply_text("❌ Please forward a message directly from a **Channel**!")
+
 # Main Handler for Text Buttons and Links
 @bot_app.on_message(filters.text & filters.private & ~filters.command(["start", "setfsub", "addfsub", "offsub", "showfsub"]))
 async def main_text_handler(client, message):
@@ -199,7 +227,7 @@ async def main_text_handler(client, message):
         else:
             await process_direct_social_link(client, message, text)
 
-# 🎬 YouTube Link Handler (Quality Buttons UI)
+# 🎬 YouTube Link Handler
 async def handle_youtube_link(client, message, url):
     status_msg = await message.reply_text("🔎 **Fetching available YouTube qualities...**")
     
@@ -249,10 +277,18 @@ async def youtube_quality_callback(client, callback_query):
     os.makedirs("downloads", exist_ok=True)
     out_file = f"downloads/{callback_query.from_user.id}_{cache_id}.%(ext)s"
 
+    youtube_extractor_args = {
+        'youtube': {
+            'player_client': ['ios', 'android', 'mweb'],
+            'skip': ['hls', 'dash']
+        }
+    }
+
     if quality == "mp3":
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': out_file,
+            'extractor_args': youtube_extractor_args,
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -264,6 +300,7 @@ async def youtube_quality_callback(client, callback_query):
         ydl_opts = {
             'format': f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<={quality}][ext=mp4]/best',
             'outtmpl': out_file,
+            'extractor_args': youtube_extractor_args,
             'max_filesize': 50 * 1024 * 1024,
         }
 
@@ -279,7 +316,6 @@ async def youtube_quality_callback(client, callback_query):
 
         file_path = await loop.run_in_executor(None, download)
 
-        # Handle mp3 extension rename
         if quality == "mp3" and file_path:
             base, _ = os.path.splitext(file_path)
             if os.path.exists(base + ".mp3"):
@@ -319,7 +355,6 @@ async def youtube_quality_callback(client, callback_query):
         )
         to_delete_messages.append(notice_msg)
 
-        # Auto Delete Task (600s = 10 mins)
         asyncio.create_task(auto_delete_messages(to_delete_messages, delay=600))
 
     except Exception as e:
@@ -395,47 +430,53 @@ async def process_direct_social_link(client, message, url):
             try: os.remove(file_path)
             except Exception: pass
 
-# 🛠️ Multi-Channel Admin Force Sub Commands
-@bot_app.on_message(filters.command("setfsub") & filters.private)
-async def set_fsub_command(client, message):
-    if message.from_user.id != OWNER_ID: return
-    try:
-        channels = message.text.split()[1:]
-        if not channels:
-            await message.reply_text("⚠️ **Format:** `/setfsub -100xxxx -100yyyy`")
-            return
-        set_fsub_channels(channels)
-        await message.reply_text(f"✅ **Set {len(channels)} F-Sub channels successfully!**\n`{', '.join(channels)}`")
-    except Exception as e:
-        await message.reply_text(f"❌ Error: `{e}`")
-
+# 📢 2. EASY F-SUB VIA USERNAME OR COMMAND (VERIFIED OWNER ONLY)
 @bot_app.on_message(filters.command("addfsub") & filters.private)
 async def add_fsub_command(client, message):
-    if message.from_user.id != OWNER_ID: return
+    # 🔒 Strict Owner Check
+    if not message.from_user or message.from_user.id != OWNER_ID:
+        return
+
     try:
-        new_ch = message.text.split()[1]
+        input_data = message.text.split()[1].strip()
         current = get_fsub_channels()
-        if new_ch not in current:
-            current.append(new_ch)
+        
+        chat = await client.get_chat(input_data)
+        ch_id = str(chat.id)
+        
+        if ch_id not in current:
+            current.append(ch_id)
             set_fsub_channels(current)
-            await message.reply_text(f"✅ Added `{new_ch}` to F-Sub list!")
+            await message.reply_text(f"✅ **`{chat.title}`** (`{ch_id}`) added to F-Sub list!")
         else:
             await message.reply_text("⚠️ Channel already in list!")
-    except Exception:
-        await message.reply_text("⚠️ **Format:** `/addfsub -100xxxxxxx`")
+    except Exception as e:
+        await message.reply_text(f"⚠️ **Format:** `/addfsub @channelusername` or `/addfsub -100xxxxxxx`\nError: `{e}`")
 
 @bot_app.on_message(filters.command("showfsub") & filters.private)
 async def show_fsub_command(client, message):
-    if message.from_user.id != OWNER_ID: return
+    if not message.from_user or message.from_user.id != OWNER_ID:
+        return
+
     channels = get_fsub_channels()
     if channels:
-        await message.reply_text(f"<b>📢 Active F-Sub Channels ({len(channels)}):</b>\n`" + "\n".join(channels) + "`")
+        text = f"<b>📢 Active F-Sub Channels ({len(channels)}):</b>\n\n"
+        for idx, ch in enumerate(channels, 1):
+            try:
+                ch_id = int(ch) if (ch.startswith("-") or ch.isdigit()) else ch
+                chat = await client.get_chat(ch_id)
+                text += f"{idx}. **{chat.title}** (`{ch}`)\n"
+            except Exception:
+                text += f"{idx}. Unknown Channel (`{ch}`)\n"
+        await message.reply_text(text)
     else:
         await message.reply_text("ℹ️ No F-Sub channels currently set.")
 
 @bot_app.on_message(filters.command("offsub") & filters.private)
 async def off_fsub_command(client, message):
-    if message.from_user.id != OWNER_ID: return
+    if not message.from_user or message.from_user.id != OWNER_ID:
+        return
+
     set_fsub_channels([])
     await message.reply_text("✅ All Force Subscribe channels turned OFF!")
 

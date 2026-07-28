@@ -2,7 +2,7 @@ import os
 import time
 import asyncio
 import sqlite3
-import uuid
+import aiohttp
 from datetime import datetime
 
 # Python Event Loop Fix for Pyrogram
@@ -27,7 +27,7 @@ API_ID = int(os.environ.get("API_ID", "0").strip())
 API_HASH = os.environ.get("API_HASH", "").strip()
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
-# 👑 Owner ID Verification (Your Telegram ID)
+# 👑 Owner ID Verification
 OWNER_ID = int(os.environ.get("OWNER_ID", "6142774415"))  
 
 # Database Setup for Bot Settings (Multi F-Sub)
@@ -85,6 +85,31 @@ async def safe_edit_text(message, text, reply_markup=None, disable_web_page_prev
         pass
     except Exception as e:
         print(f"Edit Message Error: {e}")
+
+# 📊 Telegram Upload Progress Bar
+async def upload_progress(current, total, status_msg, start_time):
+    now = time.time()
+    if not hasattr(upload_progress, "last_update"):
+        upload_progress.last_update = {}
+
+    msg_id = status_msg.id
+    if msg_id in upload_progress.last_update and (now - upload_progress.last_update[msg_id]) < 3 and current != total:
+        return
+
+    upload_progress.last_update[msg_id] = now
+    percentage = (current * 100) / total
+    completed = int(percentage // 10)
+    bar = "🚀" * completed + "⬜" * (10 - completed)
+
+    mb_cur = current / (1024 * 1024)
+    mb_tot = total / (1024 * 1024)
+
+    text = (
+        f"<b>🚀 Uploading to Telegram...</b>\n\n"
+        f"[{bar}] <b>{percentage:.1f}%</b>\n"
+        f"📦 <b>Size:</b> <code>{mb_cur:.1f} MB</code> / <code>{mb_tot:.1f} MB</code>"
+    )
+    await safe_edit_text(status_msg, text)
 
 # Check Multi Force Sub Channels
 async def check_force_sub(client, user_id):
@@ -145,9 +170,8 @@ async def start_command(client, message):
         return
 
     welcome_text = (
-        "✨ **Welcome to Social Video Downloader Bot!** ✨\n\n"
-        "📥 Send me any video link from **YouTube, Facebook, Instagram, TikTok, Twitter, or Pinterest** to download directly!\n\n"
-        "⚡ **Fast & Direct High Quality Download**\n"
+        "✨ **Welcome to Downloader Bot!** ✨\n\n"
+        "🔗 Send me any link from **YouTube, Facebook, Instagram, TikTok, Twitter, or Pinterest** to download directly!\n\n"
         "👨‍💻 **Developer:** @developerBYsiam"
     )
     await message.reply_text(welcome_text, reply_markup=reply_markup_ui)
@@ -164,26 +188,23 @@ async def fsub_callback(client, callback_query):
     else:
         await callback_query.answer("❌ You still haven't joined all required channels!", show_alert=True)
 
-# 📢 1. FIXED: EASY F-SUB VIA FORWARDED MESSAGE (VERIFIED OWNER ONLY)
+# 📢 1. EASY F-SUB VIA FORWARDED MESSAGE (FIXED & OWNER ONLY)
 @bot_app.on_message(filters.private & filters.forwarded)
 async def handle_forward_fsub(client, message):
-    # 🔒 Strict Owner Check
     if not message.from_user or message.from_user.id != OWNER_ID:
         return
 
-    forward_chat = None
+    ch_id = None
+    ch_title = None
 
-    # Check forward_from_chat OR forward_origin (Pyrogram v2+ compatibility)
     if message.forward_from_chat:
-        forward_chat = message.forward_from_chat
-    elif hasattr(message, "forward_origin") and message.forward_origin:
-        if getattr(message.forward_origin, "chat", None):
-            forward_chat = message.forward_origin.chat
+        ch_id = str(message.forward_from_chat.id)
+        ch_title = message.forward_from_chat.title or "Channel"
+    elif message.forward_from:
+        ch_id = str(message.forward_from.id)
+        ch_title = message.forward_from.first_name or "Channel"
 
-    if forward_chat and str(forward_chat.type).lower() in ["chat_type.channel", "channel", "chat_type.supergroup", "supergroup"]:
-        ch_id = str(forward_chat.id)
-        ch_title = forward_chat.title or "Channel"
-        
+    if ch_id:
         current = get_fsub_channels()
         if ch_id not in current:
             current.append(ch_id)
@@ -191,13 +212,12 @@ async def handle_forward_fsub(client, message):
             await message.reply_text(
                 f"✅ **Owner Verified! Channel Added!**\n\n"
                 f"📌 **Name:** `{ch_title}`\n"
-                f"🆔 **ID:** `{ch_id}`\n\n"
-                f"<i>This channel is now added to Force Subscribe list.</i>"
+                f"🆔 **ID:** `{ch_id}`"
             )
         else:
-            await message.reply_text(f"⚠️ **`{ch_title}`** is already in the Force Subscribe list!")
+            await message.reply_text(f"⚠️ **`{ch_title}`** is already in the list!")
     else:
-        await message.reply_text("❌ Please forward a message directly from a **Channel**!")
+        await message.reply_text("❌ Could not extract channel ID! Try: `/addfsub @channelusername`")
 
 # Main Handler for Text Buttons and Links
 @bot_app.on_message(filters.text & filters.private & ~filters.command(["start", "setfsub", "addfsub", "offsub", "showfsub"]))
@@ -215,23 +235,22 @@ async def main_text_handler(client, message):
         platforms_text = (
             "<b>📱 SUPPORTED PLATFORMS:</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "▶️ **YouTube** (Videos & Shorts)\n"
+            "▶️ **YouTube** (Direct Fast Download)\n"
             "📘 **Facebook** (Videos & Reels)\n"
             "📸 **Instagram** (Reels & Posts)\n"
             "🎵 **TikTok** (No Watermark)\n"
-            "🐦 **Twitter / X**\n"
-            "📌 **Pinterest**\n\n"
-            "<i>Just paste any video link here to download directly!</i>"
+            "🐦 **Twitter / X** & 📌 **Pinterest**\n\n"
+            "<i>Just send any video link here!</i>"
         )
         await message.reply_text(platforms_text, reply_markup=reply_markup_ui)
 
     elif text == "📜 Credits":
-        await message.reply_text("<b>🤖 Social Video Downloader Bot</b>\n<b>👨‍💻 Lead Developer:</b> @developerBYsiam", reply_markup=reply_markup_ui)
+        await message.reply_text("<b>🤖 Downloader Bot</b>\n<b>👨‍💻 Lead Developer:</b> @developerBYsiam", reply_markup=reply_markup_ui)
 
     elif text.startswith("http://") or text.startswith("https://"):
         await process_direct_social_link(client, message, text)
 
-# Direct Downloader for All Links (YouTube + Social Media)
+# Direct Downloader for YouTube and All Social Media Links
 async def process_direct_social_link(client, message, url):
     status_msg = await message.reply_text("🔎 **Processing link... Please wait.**")
     to_delete_messages = [message]
@@ -239,29 +258,50 @@ async def process_direct_social_link(client, message, url):
     os.makedirs("downloads", exist_ok=True)
     out_file = f"downloads/{message.from_user.id}_{int(time.time())}.%(ext)s"
 
-    # Options for yt-dlp
+    loop = asyncio.get_event_loop()
+
+    # Progress Hook for Download
+    last_update = [0]
+    def yt_progress_hook(d):
+        if d['status'] == 'downloading':
+            now = time.time()
+            if now - last_update[0] < 3:
+                return
+            last_update[0] = now
+            
+            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+            downloaded = d.get('downloaded_bytes', 0)
+            
+            if total > 0:
+                percentage = (downloaded / total) * 100
+                completed = int(percentage // 10)
+                bar = "🟩" * completed + "⬜" * (10 - completed)
+                
+                mb_down = downloaded / (1024 * 1024)
+                mb_tot = total / (1024 * 1024)
+                
+                text = (
+                    f"<b>📥 Downloading Media...</b>\n\n"
+                    f"[{bar}] <b>{percentage:.1f}%</b>\n"
+                    f"📦 <b>Size:</b> <code>{mb_down:.1f} MB</code> / <code>{mb_tot:.1f} MB</code>"
+                )
+                asyncio.run_coroutine_threadsafe(safe_edit_text(status_msg, text), loop)
+
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': out_file,
         'noplaylist': True,
         'max_filesize': 50 * 1024 * 1024,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios', 'android', 'mweb'],
-                'skip': ['hls', 'dash']
-            }
-        }
+        'progress_hooks': [yt_progress_hook],
+        'quiet': True,
+        'no_warnings': True,
     }
 
-    # If cookies.txt exists in root directory, use it automatically to bypass bot protection
     if os.path.exists("cookies.txt"):
-        ydl_opts['cookiefile'] = "cookies.txt"
+        ydl_opts['cookiefile'] = 'cookies.txt'
 
     file_path = None
     try:
-        await safe_edit_text(status_msg, "📥 **Downloading video...**")
-        
-        loop = asyncio.get_event_loop()
         def download():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -273,21 +313,22 @@ async def process_direct_social_link(client, message, url):
             await safe_edit_text(status_msg, "❌ **Failed to download media.** Check link or restrictions.")
             return
 
-        await safe_edit_text(status_msg, "🚀 **Uploading video to Telegram...**")
-        
+        start_time = time.time()
         caption = "⚡ **Downloaded Successfully!**\n\n✨ **Bot by:** @developerBYsiam"
-        sent_video = await bot_app.send_video(message.chat.id, video=file_path, caption=caption)
+        
+        sent_video = await bot_app.send_video(
+            message.chat.id, 
+            video=file_path, 
+            caption=caption,
+            progress=upload_progress,
+            progress_args=(status_msg, start_time)
+        )
         to_delete_messages.append(sent_video)
 
         await status_msg.delete()
 
-        # ⏱️ 10 Minutes Auto Delete Notice
-        notice_text = (
-            "⏳ **Auto Delete Notice**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "Your link, downloaded video, and this notice will be automatically deleted in **10 minutes**!\n"
-            "Please save or forward it now."
-        )
+        # ⏱️ Short & Clean 10 Minutes Auto Delete Notice
+        notice_text = "⏳ **Notice:** Media & link will automatically delete in **10 minutes**! Save now."
         notice_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("👨‍💻 Developer Support", url="https://t.me/developerBYsiam")]
         ])
@@ -305,7 +346,7 @@ async def process_direct_social_link(client, message, url):
             try: os.remove(file_path)
             except Exception: pass
 
-# 📢 2. EASY F-SUB VIA USERNAME OR COMMAND (VERIFIED OWNER ONLY)
+# 📢 EASY F-SUB COMMANDS (VERIFIED OWNER ONLY)
 @bot_app.on_message(filters.command("addfsub") & filters.private)
 async def add_fsub_command(client, message):
     if not message.from_user or message.from_user.id != OWNER_ID:

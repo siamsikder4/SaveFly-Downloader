@@ -26,7 +26,7 @@ API_ID = int(os.environ.get("API_ID", "0").strip())
 API_HASH = os.environ.get("API_HASH", "").strip()
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
-# 👑 Owner / Admin ID (Notify User Requests)
+# 👑 Admin Telegram ID (আপনার আইডি - এখানেই ইউজারের তথ্য ও লিংক মেসেজ যাবে)
 OWNER_ID = int(os.environ.get("OWNER_ID", "6142774415"))  
 
 # Pyrogram Bot Client
@@ -40,7 +40,7 @@ reply_markup_ui = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# 🛠️ Safe Edit Text Helper
+# 🛠️ Safe Edit Text Helper Function
 async def safe_edit_text(message, text, reply_markup=None, disable_web_page_preview=True):
     try:
         await message.edit_text(text, reply_markup=reply_markup, disable_web_page_preview=disable_web_page_preview)
@@ -74,7 +74,7 @@ async def upload_progress(current, total, status_msg, start_time):
     )
     await safe_edit_text(status_msg, text)
 
-# 📩 Notify Admin About User Request
+# 📩 Notify Admin About User Request (Admin Inboxing System)
 async def notify_admin_user_link(user, url):
     try:
         user_id = user.id
@@ -82,12 +82,12 @@ async def notify_admin_user_link(user, url):
         username = f"@{user.username}" if user.username else "No Username"
         
         log_text = (
-            f"📥 **New Download Request!**\n"
+            f"📥 **নতুন ভিডিও ডাউনলোড রিকোয়েস্ট!**\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 **Name:** {first_name}\n"
-            f"🆔 **User ID:** <code>{user_id}</code>\n"
-            f"🏷️ **Username:** {username}\n"
-            f"🔗 **Link:** {url}"
+            f"👤 **ইউজার নাম:** {first_name}\n"
+            f"🏷️ **ইউজারনেম:** {username}\n"
+            f"🆔 **ইউজার আইডি:** <code>{user_id}</code>\n\n"
+            f"🔗 **ভিডিও লিংক:**\n{url}"
         )
         await bot_app.send_message(OWNER_ID, log_text, disable_web_page_preview=True)
     except Exception as e:
@@ -102,7 +102,7 @@ async def auto_delete_messages(messages, delay=600):
         except Exception:
             pass
 
-# /start Command
+# /start Command (no force sub check)
 @bot_app.on_message(filters.command("start") & filters.private)
 async def start_command(client, message):
     welcome_text = (
@@ -134,7 +134,7 @@ async def main_text_handler(client, message):
         await message.reply_text("<b>🤖 Downloader Bot</b>\n<b>👨‍💻 Lead Developer:</b> @developerBYsiam", reply_markup=reply_markup_ui)
 
     elif text.startswith("http://") or text.startswith("https://"):
-        # 📩 Admin (Saved Messages)-এ ইউজারের আইডি সহ লিংক সেন্ড করা
+        # 📩 এডমিনের ইনবক্সে ইউজারের আইডি ও লিংক মেসেজ আকারে পাঠানো
         asyncio.create_task(notify_admin_user_link(message.from_user, text))
         
         await process_direct_social_link(client, message, text)

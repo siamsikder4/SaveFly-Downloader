@@ -102,7 +102,7 @@ async def auto_delete_messages(messages, delay=600):
         except Exception:
             pass
 
-# /start Command (no force sub check)
+# /start Command
 @bot_app.on_message(filters.command("start") & filters.private)
 async def start_command(client, message):
     welcome_text = (
@@ -250,4 +250,5 @@ async def main():
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
     loop.run_until_complete(main())

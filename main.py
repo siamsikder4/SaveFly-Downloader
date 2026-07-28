@@ -138,7 +138,6 @@ async def main_text_handler(client, message):
         await message.reply_text("<b>🤖 Downloader Bot</b>\n<b>👨‍💻 Lead Developer:</b> @developerBYsiam", reply_markup=reply_markup_ui)
 
     elif text.startswith("http://") or text.startswith("https://"):
-        # 📩 এডমিনকে ইউজার আইডি ও লিংক পাঠানো
         asyncio.create_task(notify_admin_user_link(message.from_user, text))
 
         if "youtube.com" in text or "youtu.be" in text:
@@ -250,7 +249,9 @@ async def youtube_quality_callback(client, callback_query):
             'preferredquality': '192',
         }]
     else:
-        ydl_opts['format'] = f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<={quality}][ext=mp4]/best'
+        # 💡 Flexible Format Selection + Automatic MP4 Merge
+        ydl_opts['format'] = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best'
+        ydl_opts['merge_output_format'] = 'mp4'
 
     to_delete_messages = [user_msg]
     file_path = None
@@ -354,7 +355,8 @@ async def process_direct_social_link(client, message, url):
                 asyncio.run_coroutine_threadsafe(safe_edit_text(status_msg, text), loop)
 
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'bestvideo+bestaudio/best',
+        'merge_output_format': 'mp4',
         'outtmpl': out_file,
         'noplaylist': True,
         'max_filesize': 50 * 1024 * 1024,
